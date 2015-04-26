@@ -8,12 +8,9 @@
 
 package com.gemstone.gemfire.management.internal;
 
-import java.io.File;
-
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
-import org.springframework.util.Assert;
 
 import com.gemstone.gemfire.cache.AttributesFactory;
 import com.gemstone.gemfire.cache.CacheFactory;
@@ -24,7 +21,6 @@ import com.gemstone.gemfire.distributed.internal.DistributionConfig;
 import com.gemstone.gemfire.internal.GemFireVersion;
 import com.gemstone.gemfire.internal.cache.GemFireCacheImpl;
 import com.gemstone.gemfire.internal.cache.InternalRegionArguments;
-import com.gemstone.gemfire.internal.lang.StringUtils;
 import com.gemstone.gemfire.internal.logging.LogService;
 import com.gemstone.gemfire.management.ManagementService;
 
@@ -91,52 +87,23 @@ public class RestAgent {
     }
   }
   
-  private Server httpServer;
+  private Server httpServer;  
   private final String GEMFIRE_VERSION = GemFireVersion.getGemFireVersion();
-  
-  private String getGemFireAPIWarLocation(final String gemfireHome) {
-    assert !StringUtils.isBlank(gemfireHome) : "The GEMFIRE environment variable must be set!";
-    if (new File(gemfireHome + "/tools/Extensions/gemfire-api" + GEMFIRE_VERSION + ".war").isFile()) {
-      return gemfireHome + "/tools/Extensions/gemfire-api" + GEMFIRE_VERSION + ".war";
-    }
-    else if (new File(gemfireHome + "/lib/gemfire-api" + GEMFIRE_VERSION + ".war").isFile()) {
-      return gemfireHome + "/lib/gemfire-api" + GEMFIRE_VERSION + ".war";
-    }
-    else {
-      return null;
-    }
-  }
+  private AgentUtil agentUtil = new AgentUtil(GEMFIRE_VERSION);
   
   private boolean isRunningInTomcat() {
     return (System.getProperty("catalina.base") != null || System.getProperty("catalina.home") != null);
   }
-  
-  private boolean isWebApplicationAvailable(final String warFileLocation) {
-    return !StringUtils.isBlank(warFileLocation);
-  }
-  
+    
   //Start HTTP service in embedded mode
   public void startHttpService() {
     //TODO: add a check that will make sure that we start HTTP service on non-manager data node
     logger.info("Attempting to start HTTP service on port ({}) at bind-address ({})...",
         this.config.getHttpServicePort(), this.config.getHttpServiceBindAddress());
-      
-    String gemfireHome = System.getenv("GEMFIRE");
-    
-    // Check for empty variable. if empty, then log message and exit HTTP server startup
-    if (StringUtils.isBlank(gemfireHome)) {
-      String gemfire = System.getProperty("gemfire.home");
-      logger.info("Reading gemfire.home System Property -> {}", gemfire);
-      if (StringUtils.isBlank(gemfire)) {
-        logger.info("GEMFIRE environment variable not set; HTTP service will not start.");
-        return;
-      } else {
-        gemfireHome = gemfire;
-      }
-    }
-      
+          
+
     // Find the developer REST WAR file
-    final String gemfireAPIWar =  getGemFireAPIWarLocation(gemfireHome);
+    final String gemfireAPIWar =  agentUtil.getGemFireWebApiWarLocation();
       
     if(gemfireAPIWar == null){
       logger.info("Unable to find GemFire Developer REST API WAR file; the Developer REST API for GemFire will not be exported and accessible.");
@@ -147,7 +114,7 @@ public class RestAgent {
       if (isRunningInTomcat()) {
         logger.warn("Detected presence of catalina system properties. HTTP service will not be started. To enable the GemFire developer REST API, please deploy the gemfire-web.war file in your application server."); 
       }
-      else if (isWebApplicationAvailable(gemfireAPIWar)) {
+      else if (agentUtil.isWebApplicationAvailable(gemfireAPIWar)) {
           
         final String bindAddress = this.config.getHttpServiceBindAddress();
         final int port = this.config.getHttpServicePort();

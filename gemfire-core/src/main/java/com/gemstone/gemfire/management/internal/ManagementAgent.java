@@ -7,7 +7,6 @@
  */
 package com.gemstone.gemfire.management.internal;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
 import java.lang.management.ManagementFactory;
@@ -151,6 +150,7 @@ public class ManagementAgent  {
   
   private Server httpServer;
   private final String GEMFIRE_VERSION = GemFireVersion.getGemFireVersion();
+  private AgentUtil agentUtil = new AgentUtil(GEMFIRE_VERSION);
   
   private void startHttpService(boolean isServer) {
     final SystemManagementService managementService = (SystemManagementService) ManagementService.getManagementService(
@@ -164,11 +164,8 @@ public class ManagementAgent  {
             this.config.getHttpServicePort(), this.config.getHttpServiceBindAddress());
       }
 
-      // GEMFIRE environment variable
-      final String gemfireHome = System.getenv("GEMFIRE");
-
       // Check for empty variable. if empty, then log message and exit HTTP server startup
-      if (StringUtils.isBlank(gemfireHome)) {
+      if (agentUtil.isGemfireHomeDefined()) {
         final String message = "GEMFIRE environment variable not set; HTTP service will not start.";
         setStatusMessage(managerBean, message);
         if (logger.isDebugEnabled()) {
@@ -178,7 +175,7 @@ public class ManagementAgent  {
       }
 
       // Find the Management WAR file
-      final String gemfireWar = getGemFireWarLocation(gemfireHome);
+      final String gemfireWar = agentUtil.getGemfireApiWarLocation();
 
       if (gemfireWar == null) {
         if (logger.isDebugEnabled()) {
@@ -187,7 +184,7 @@ public class ManagementAgent  {
       }
 
       // Find the Pulse WAR file
-      final String pulseWar = getPulseWarLocation(gemfireHome);
+      final String pulseWar = agentUtil.getPulseWarLocation();
 
       if (pulseWar == null) {
         final String message = "Unable to find Pulse web application WAR file; Pulse will not start in embeded mode";
@@ -198,7 +195,7 @@ public class ManagementAgent  {
       }
       
       //Find developer REST WAR file
-      final String gemfireAPIWar =  getGemFireAPIWarLocation(gemfireHome);
+      final String gemfireAPIWar =  agentUtil.getGemFireWebApiWarLocation();
       if (gemfireAPIWar == null) {
         final String message = "Unable to find developer REST web application WAR file; developer REST will not start in embeded mode";
         setStatusMessage(managerBean, message);
@@ -208,7 +205,7 @@ public class ManagementAgent  {
       }
       
       try {
-        if (isWebApplicationAvailable(gemfireWar, pulseWar, gemfireAPIWar)) {
+        if (agentUtil.isWebApplicationAvailable(gemfireWar, pulseWar, gemfireAPIWar)) {
           
           final String bindAddress = this.config.getHttpServiceBindAddress();
           final int port = this.config.getHttpServicePort();
@@ -222,16 +219,16 @@ public class ManagementAgent  {
               this.config.getHttpServiceSSLCiphers(), 
               this.config.getHttpServiceSSLProperties());
 
-          if (isWebApplicationAvailable(gemfireWar)) {
+          if (agentUtil.isWebApplicationAvailable(gemfireWar)) {
             this.httpServer = JettyHelper.addWebApplication(this.httpServer, "/gemfire", gemfireWar);
           }
 
-          if (isWebApplicationAvailable(pulseWar)) {
+          if (agentUtil.isWebApplicationAvailable(pulseWar)) {
             this.httpServer = JettyHelper.addWebApplication(this.httpServer, "/pulse", pulseWar);
           }
          
           if(isServer && this.config.getStartDevRestApi()) {
-            if (isWebApplicationAvailable(gemfireAPIWar) ) {
+            if (agentUtil.isWebApplicationAvailable(gemfireAPIWar) ) {
               this.httpServer = JettyHelper.addWebApplication(this.httpServer, "/gemfire-api", gemfireAPIWar);
               isRestWebAppAdded = true;
             }
@@ -253,7 +250,7 @@ public class ManagementAgent  {
           this.httpServer = JettyHelper.startJetty(this.httpServer);
 
           // now, that Tomcat has been started, we can set the URL used by web clients to connect to Pulse
-          if (isWebApplicationAvailable(pulseWar)) {
+          if (agentUtil.isWebApplicationAvailable(pulseWar)) {
             managerBean.setPulseURL("http://".concat(getHost(bindAddress)).concat(":").concat(String.valueOf(port))
               .concat("/pulse/"));
           }
@@ -294,71 +291,8 @@ public class ManagementAgent  {
     }
   }
 
-  // Use the GEMFIRE environment variable to find the GemFire product tree.
-  // First, look in the $GEMFIRE/tools/Management directory
-  // Second, look in the $GEMFIRE/lib directory
-  // Finally, if we cannot find Management WAR file then return null...
-  private String getGemFireWarLocation(final String gemfireHome) {
-    assert !StringUtils.isBlank(gemfireHome) : "The GEMFIRE environment variable must be set!";
-
-    if (new File(gemfireHome + "/tools/Extensions/gemfire-web-" + GEMFIRE_VERSION + ".war").isFile()) {
-      return gemfireHome + "/tools/Extensions/gemfire-web-" + GEMFIRE_VERSION + ".war";
-    }
-    else if (new File(gemfireHome + "/lib/gemfire-web-" + GEMFIRE_VERSION + ".war").isFile()) {
-      return gemfireHome + "/lib/gemfire-web-" + GEMFIRE_VERSION + ".war";
-    }
-    else {
-      return null;
-    }
-  }
-
-  // Use the GEMFIRE environment variable to find the GemFire product tree.
-  // First, look in the $GEMFIRE/tools/Pulse directory
-  // Second, look in the $GEMFIRE/lib directory
-  // Finally, if we cannot find the Management WAR file then return null...
-  private String getPulseWarLocation(final String gemfireHome) {
-    assert !StringUtils.isBlank(gemfireHome) : "The GEMFIRE environment variable must be set!";
-
-    if (new File(gemfireHome + "/tools/Pulse/pulse.war").isFile()) {
-      return gemfireHome + "/tools/Pulse/pulse.war";
-    }
-    else if (new File(gemfireHome + "/lib/pulse.war").isFile()) {
-      return gemfireHome + "/lib/pulse.war";
-    }
-    else {
-      return null;
-    }
-  }
-
-  private String getGemFireAPIWarLocation(final String gemfireHome) {
-    assert !StringUtils.isBlank(gemfireHome) : "The GEMFIRE environment variable must be set!";
-    if (new File(gemfireHome + "/tools/Extensions/gemfire-api" + GEMFIRE_VERSION + ".war").isFile()) {
-      return gemfireHome + "/tools/Extensions/gemfire-api" + GEMFIRE_VERSION + ".war";
-    }
-    else if (new File(gemfireHome + "/lib/gemfire-api" + GEMFIRE_VERSION + ".war").isFile()) {
-      return gemfireHome + "/lib/gemfire-api" + GEMFIRE_VERSION + ".war";
-    }
-    else {
-      return null;
-    }
-  }
-
   private boolean isRunningInTomcat() {
     return (System.getProperty("catalina.base") != null || System.getProperty("catalina.home") != null);
-  }
-
-  private boolean isWebApplicationAvailable(final String warFileLocation) {
-    return !StringUtils.isBlank(warFileLocation);
-  }
-
-  private boolean isWebApplicationAvailable(final String... warFileLocations) {
-    for (String warFileLocation : warFileLocations) {
-      if (isWebApplicationAvailable(warFileLocation)) {
-        return true;
-      }
-    }
-
-    return false;
   }
 
   private void setStatusMessage(ManagerMXBean mBean, String message) {
